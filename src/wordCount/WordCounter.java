@@ -1,82 +1,103 @@
 package wordCount;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.util.HashMap;
+import java.io.FileNotFoundException;
+import java.io.PrintWriter;
+import java.io.UnsupportedEncodingException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 /**
  * <p>This class counts the occurrences of words in a file</p>
  * 
- * Version 1.0 features:
- * <li>load entire text file into memory</li>
- * <li>use whitespace as separator</li>
- * <li>write unsorted output to screen</li>
+ * Version 2.0 features:
+ * <li>handles large files</li>
+ * <li>uses multiple threads to process file</li>
+ * <li>uses whitespace and punctuations as separator</li>
+ * <li>writes sorted output to file</li>
  * 
  * Limitations:
- * <li>does not handle end of line</li>
- * <li>does not handle punctuation</li>
- * <li>does not handle case</li>
- * <li>read entire text file into memory</li>
- * <li>output goes to screen and is not sorted</li>
+ * <li>strips off period from tokens, which is sometimes not desirable (i.e. becomes i.e)</li>
+ * <li>doesn't tokenize on apostrophe, whereas other tokenizers do (don't becomes don 't)</li>
+ * <li>uses only one thread for reading, which can become a bottleneck</li>
+ * <li>toLowerCase() won't work with some UTF-8 characters, and should use case folding instead</li>
+ * <li>no logging</li>
+ * 
+ * @author Elisa
  */
 public class WordCounter {
 
-	public static void main(String[] args) throws IOException {
-		String fileName = args[0];
-		countWords(fileName);
-	}
-	/**
-	 * Print frequency counts for words in given fileName
-	 * @param fileName name of file to parse
-	 * @throws IOException if error reading fileName
-	 */
-	protected static void countWords(String fileName) throws IOException {
-		//read file
-		String input = new String(Files.readAllBytes(Paths.get(fileName)));
-		//tokenize
-		String[] tokens = tokenize(input);
-		//count
-		HashMap<String, Integer> countsMap = buildCounts(tokens);
-		
-		//print
-		formatOutput(countsMap);
-	}
-
-	/**
-	 * Build a map of words to counts
-	 * @param tokens array of words
-	 * @return hashmap with words as keys, and counts as values
-	 */
-	protected static HashMap<String, Integer> buildCounts(String[] tokens) {
-		HashMap<String, Integer> countsMap = new HashMap<>();
-		for(String token: tokens){
-			Integer count = countsMap.putIfAbsent(token, 1);
-			if(count != null){
-				count++;
-				countsMap.put(token, count);
-			}
-		}
-		return countsMap;
-	}
+	protected static String[] punctuation = {"\\-\\-", "\\[", "\\]", "\"", ",", "\\!", "\\(", "\\)", ":", ";", "\\?", "`"};
 
 	/**
 	 * Tokenize a string
-	 * @param input the string to tokenize
-	 * @return array of tokens (words)
+	 * @param line text to tokenize
+	 * @param ignoreCase lowercase characters when <boolean>true</boolean>
+	 * @return list of tokens
 	 */
-	protected static String[] tokenize(String input) {
-		String[] tokens = input.split(" ");
-		return tokens;
+	protected static List<String> tokenize(String line, boolean ignoreCase) {
+		List<String> cleanedTokens = new ArrayList<>();
+		
+		String regex = " |" + String.join("|", punctuation);
+		String[] tokens = line.split(regex);
+		cleanedTokens = clean(tokens, ignoreCase);
+		
+		return cleanedTokens;
 	}
 	
 	/**
-	 * Print out the counts
-	 * @param countsMap
+	 * Clean array of tokens
+	 * @param tokens array of tokens
+	 * @param ignoreCase lowercase characters when <boolean>true</boolean>
+	 * @return cleaned tokens
 	 */
-	protected static void formatOutput(HashMap<String, Integer> countsMap){
-		for(String token: countsMap.keySet()){
-			System.out.println(token + ", " + countsMap.get(token));
+	protected static List<String> clean(String[] tokens, boolean ignoreCase){
+		List<String> cleanedTokens = new ArrayList<>();
+		for(String token: tokens){
+			String cleanedToken = token.trim().replaceAll("\\.+$|'$", ""); //delete trailing periods and apostrophes
+			if(ignoreCase){
+				cleanedToken = cleanedToken.toLowerCase();
+			}
+			if(!cleanedToken.isEmpty()){
+				cleanedTokens.add(cleanedToken);
+			}
 		}
+		return cleanedTokens;
+	}
+	
+	/**
+	 * Sort and print out the counts to a file
+	 * @param countsMap map of tokens to counts
+	 * @param fileName name of input filename to create output filename 
+	 */
+	protected static void formatOutput(ConcurrentHashMap<String, Integer> countsMap, String fileName) throws FileNotFoundException, UnsupportedEncodingException{
+		String outputFileName = fileName + "_counts";
+		Map<String, Integer> sortedCountsMap = sortByValue(countsMap);
+		PrintWriter writer = new PrintWriter(outputFileName, "UTF-8");
+		for(String token: sortedCountsMap.keySet()){
+			writer.println(token + ", " + countsMap.get(token));
+		}
+		writer.close();
+	}
+	
+	/**
+	 * Sort by Map value
+	 * @param map map of keys and values to sort
+	 * @return sorted map
+	 */
+	protected static <K, V extends Comparable<? super V>> Map<K, V> sortByValue(Map<K, V> map) {
+	    return map.entrySet()
+	              .stream()
+	              .sorted(Map.Entry.comparingByValue(Collections.reverseOrder()))
+	              .collect(Collectors.toMap(
+	                Map.Entry::getKey, 
+	                Map.Entry::getValue, 
+	                (e1, e2) -> e1, 
+	                LinkedHashMap::new
+	              ));
 	}
 }
